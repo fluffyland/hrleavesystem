@@ -1,14 +1,31 @@
 name: Keep database awake
+# Pings Supabase every 2 days so the free-tier database never hits its 7-day idle pause.
+# Alerting:
+#   - If the Supabase ping FAILS, this job fails and GitHub emails the repo owner.
+#   - If you add a HEALTHCHECK_URL secret (e.g. from healthchecks.io), the job also
+#     "checks in" after a successful ping. If a check-in is ever missed — because the
+#     ping failed OR this workflow stopped running at all — that service emails you.
 on:
   schedule:
-    - cron: "0 1 */2 * *"
+    - cron: "0 1 */2 * *"   # every 2 days at 01:00 UTC (09:00 SGT)
   workflow_dispatch:
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping
+      - name: Ping Supabase (fails loudly if the database is unreachable)
         run: |
           curl -sSf "https://aypyolzkdupkpefpxius.supabase.co/rest/v1/leave_types?select=code&limit=1" \
             -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5cHlvbHprZHVwa3BlZnB4aXVzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM1MDM0MTMsImV4cCI6MjA5OTA3OTQxM30.hoRS_j8yBTJkcQBG_IZRuVgDD06ZGCRam8lqz923f6s" \
-            > /dev/null && echo OK
+            > /dev/null
+          echo "Supabase ping OK"
+      - name: Watchdog check-in (only if a HEALTHCHECK_URL secret is set)
+        if: success()
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          if [ -n "$HC_URL" ]; then
+            curl -fsS --retry 3 "$HC_URL" > /dev/null && echo "Watchdog checked in"
+          else
+            echo "No HEALTHCHECK_URL secret set — skipping watchdog (add one to enable 'stopped pinging' alerts)"
+          fi
